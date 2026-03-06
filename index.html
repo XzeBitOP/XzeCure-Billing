@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XzeCure | Professional Billing System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const LOGO_URL = "https://raw.githubusercontent.com/XzeBitOP/SorenAssets/4045adfb36c572eba0c0dd418866d8ddb077a298/Website%20images/IMG_7123.png";
+        const REVIEW_LINK = "https://share.google/AwVHrXApkOqDDM7KT";
+
+        const SERVICES_DATA = [
+            {
+                category: "Doctor Services",
+                items: [
+                    { name: "Doctor Home Visit (Daytime)", price: 999 },
+                    { name: "Emergency / Night Visit (10pm-7am)", price: 1499 },
+                    { name: "Tele / Video Consultation", price: 499 },
+                ]
+            },
+            {
+                category: "Nursing Services",
+                items: [
+                    { name: "Nursing Visit (Inj/Dressing/IV)", price: 400 },
+                    { name: "12-hour Nursing Shift", price: 1200 },
+                    { name: "24-hour Nursing Care", price: 2200 },
+                    { name: "ICU-trained Nurse (Shift)", price: 1500 },
+                ]
+            },
+            {
+                category: "Physiotherapy",
+                items: [
+                    { name: "Physiotherapy Consultation", price: 400 },
+                    { name: "Follow-up Physio Session", price: 600 },
+                    { name: "Physio Package (10 sessions)", price: 3999 },
+                ]
+            },
+            {
+                category: "Procedures & Tests",
+                items: [
+                    { name: "Nebulisation at Home", price: 99 },
+                    { name: "ECG at Home", price: 199 },
+                    { name: "IV / Injection at Home", price: 99 },
+                    { name: "Wound Dressing", price: 199 },
+                    { name: "Blood Sample Collection", price: 149 },
+                ]
+            }
+        ];
+
+        function App() {
+            const [patient, setPatient] = useState({
+                name: '', phone: '', age: '', gender: 'Male', address: '', doctorName: '',
+                date: new Date().toISOString().split('T')[0]
+            });
+            const [cart, setCart] = useState([]);
+            const [visitCharge, setVisitCharge] = useState(0);
+            const [surchargePercent, setSurchargePercent] = useState(0);
+            const [manualTotal, setManualTotal] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [openCategory, setOpenCategory] = useState("Doctor Services");
+            const [isGenerating, setIsGenerating] = useState(false);
+
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const totalWithVisit = subtotal + Number(visitCharge);
+            const surchargeAmount = (totalWithVisit * surchargePercent) / 100;
+            const finalTotal = manualTotal !== '' ? Number(manualTotal) : (totalWithVisit + surchargeAmount);
+
+            const filteredServices = useMemo(() => {
+                if (!searchTerm) return SERVICES_DATA;
+                return SERVICES_DATA.map(cat => ({
+                    ...cat,
+                    items: cat.items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                })).filter(cat => cat.items.length > 0);
+            }, [searchTerm]);
+
+            const addToCart = (item) => {
+                const existing = cart.find(c => c.name === item.name);
+                if (existing) {
+                    setCart(cart.map(c => c === existing ? { ...c, qty: c.qty + 1 } : c));
+                } else {
+                    setCart([...cart, { ...item, qty: 1, id: Date.now() }]);
+                }
+            };
+
+            const getBase64 = (url) => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = 'Anonymous';
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width; canvas.height = img.height;
+                        canvas.getContext('2d').drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = () => resolve(null);
+                    img.src = url;
+                });
+            };
+
+            const generatePDF = async () => {
+                setIsGenerating(true);
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF();
+                    const pageWidth = doc.internal.pageSize.width;
+                    
+                    // Colors
+                    const charcoal = [30, 41, 59];
+                    const medGreen = [22, 163, 74];
+                    const lightBg = [248, 250, 252];
+
+                    // Header
+                    doc.setFillColor(...lightBg);
+                    doc.rect(0, 0, pageWidth, 55, 'F');
+                    
+                    const logo = await getBase64(LOGO_URL);
+                    if (logo) doc.addImage(logo, 'PNG', 15, 10, 35, 35);
+
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(28);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("XzeCure", pageWidth - 15, 25, { align: 'right' });
+                    
+                    doc.setFontSize(10);
+                    doc.setTextColor(...medGreen);
+                    doc.text("EMERGENCY HOME HEALTHCARE", pageWidth - 15, 32, { align: 'right' });
+                    
+                    doc.setFontSize(9);
+                    doc.setTextColor(100);
+                    doc.setFont("helvetica", "normal");
+                    doc.text("www.xzecure.co.in | +91 93158 56041", pageWidth - 15, 38, { align: 'right' });
+
+                    // Invoice Bar
+                    doc.setFillColor(...charcoal);
+                    doc.rect(15, 60, pageWidth - 30, 12, 'F');
+                    doc.setTextColor(255);
+                    doc.setFontSize(10);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(`RECEIPT NO: #XZ-${Date.now().toString().slice(-6)}`, 22, 67.5);
+                    doc.text(`DATE: ${patient.date}`, pageWidth - 22, 67.5, { align: 'right' });
+
+                    // Info Grid
+                    doc.setTextColor(100);
+                    doc.setFontSize(8);
+                    doc.text("SERVICE PROVIDER", 15, 82);
+                    doc.text("PATIENT DETAILS", 110, 82);
+
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(10);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("XzeCure Medical Unit", 15, 88);
+                    doc.text(patient.name || "N/A", 110, 88);
+
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(9);
+                    doc.text(`Dr. ${patient.doctorName || "Assigned Associate"}`, 15, 94);
+                    doc.text(`Ph: ${patient.phone || "N/A"}`, 110, 94);
+                    doc.text(`Age/Sex: ${patient.age || '-'} / ${patient.gender}`, 110, 100);
+                    const addr = doc.splitTextToSize(`Loc: ${patient.address || "N/A"}`, 80);
+                    doc.text(addr, 110, 106);
+
+                    // Table
+                    const rows = cart.map((it, i) => [i + 1, it.name, `INR ${it.price}`, it.qty, `INR ${it.price * it.qty}`]);
+                    doc.autoTable({
+                        startY: 115,
+                        head: [['#', 'Description', 'Rate', 'Qty', 'Total']],
+                        body: rows,
+                        theme: 'grid',
+                        headStyles: { fillColor: charcoal, fontSize: 9 },
+                        columnStyles: { 0: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'center' }, 4: { halign: 'right' } }
+                    });
+
+                    // Summary
+                    let y = doc.lastAutoTable.finalY + 10;
+                    const summary = (l, v, b = false) => {
+                        doc.setFont("helvetica", b ? "bold" : "normal");
+                        doc.setFontSize(b ? 12 : 9);
+                        doc.text(l, pageWidth - 60, y, { align: 'right' });
+                        doc.text(`INR ${v}`, pageWidth - 15, y, { align: 'right' });
+                        y += 7;
+                    };
+                    summary("Subtotal:", subtotal);
+                    if (visitCharge > 0) summary("Visit Charges:", visitCharge);
+                    if (surchargePercent > 0) summary(`Surge (${surchargePercent}%):`, surchargeAmount);
+                    summary("TOTAL PAYABLE:", finalTotal, true);
+
+                    // Thank You Box
+                    y += 10;
+                    doc.setFillColor(245, 245, 245);
+                    doc.rect(15, y, pageWidth - 30, 50, 'F');
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("Thank you for choosing XzeCure, 20, y + 10);
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+                    doc.text("We truly appreciate your trust in us.", 20, y + 16);
+                    doc.text("Satisfied with our service? Rate us on Google:", 20, y + 26);
+                    
+                    // Button
+                    doc.setFillColor(...medGreen);
+                    doc.roundedRect(20, y + 30, 45, 10, 1, 1, 'F');
+                    doc.setTextColor(255);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("RATE ON GOOGLE", 42.5, y + 36.5, { align: 'center' });
+                    doc.link(20, y + 30, 45, 10, { url: REVIEW_LINK });
+
+                    doc.setTextColor(150);
+                    doc.setFontSize(8);
+                    doc.text("YouTube/Instagram: @XzeCure", 20, y + 46);
+
+                    doc.save(`XzeCure_Receipt_${patient.name || 'Patient'}.pdf`);
+                } catch (err) {
+                    alert("Error creating PDF. Please ensure your internet is working.");
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            const sendWA = () => {
+                if (!patient.phone) return alert("Enter phone.");
+                const num = patient.phone.replace(/\D/g, '');
+                const wa = num.length === 10 ? `91${num}` : num;
+                const msg = `*XZECURE HEALTHCARE*%0A%0AHi *${patient.name}*, your receipt for *INR ${finalTotal}* is ready.%0A%0A*Thank you for choosing XzeCure* 🙏%0A%0APlease rate us on Google: ${REVIEW_LINK}%0A%0A_XzeCure Team_`;
+                window.open(`https://wa.me/${wa}?text=${msg}`, '_blank');
+            };
+
+            return (
+                <div className="min-h-screen">
+                    <nav className="glass sticky top-0 z-50 border-b px-6 py-4 flex justify-between items-center shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-slate-900 p-2 rounded-2xl"><img src={LOGO_URL} className="w-8 h-8" /></div>
+                            <h1 className="text-xl font-black tracking-tighter">XzeCure</h1>
+                        </div>
+                        <button onClick={generatePDF} disabled={cart.length === 0} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg transition-all active:scale-95 disabled:opacity-30">
+                            Download Receipt
+                        </button>
+                    </nav>
+
+                    <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 mt-4">
+                        <div className="lg:col-span-7 space-y-6">
+                            <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                                <h2 className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-6">Patient & Medical</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    <input type="text" placeholder="Patient Name" className="p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-green-500" value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} />
+                                    <input type="tel" placeholder="WhatsApp Number" className="p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-green-500" value={patient.phone} onChange={e => setPatient({...patient, phone: e.target.value})} />
+                                    <div className="flex gap-4">
+                                        <input type="number" placeholder="Age" className="w-1/3 p-4 bg-slate-50 rounded-2xl outline-none" value={patient.age} onChange={e => setPatient({...patient, age: e.target.value})} />
+                                        <select className="flex-1 p-4 bg-slate-50 rounded-2xl outline-none" value={patient.gender} onChange={e => setPatient({...patient, gender: e.target.value})}>
+                                            <option>Male</option><option>Female</option>
+                                        </select>
+                                    </div>
+                                    <input type="text" placeholder="Doctor Name" className="p-4 bg-green-50/50 border border-green-100 rounded-2xl outline-none" value={patient.doctorName} onChange={e => setPatient({...patient, doctorName: e.target.value})} />
+                                    <input type="text" placeholder="Service Address" className="md:col-span-2 p-4 bg-slate-50 rounded-2xl outline-none" value={patient.address} onChange={e => setPatient({...patient, address: e.target.value})} />
+                                </div>
+                            </div>
+
+                            <div className="relative">
+                                <input type="text" placeholder="Search services..." className="w-full p-6 pl-14 rounded-[2rem] shadow-xl shadow-slate-200/50 border-none outline-none text-lg" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <div className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300">🔍</div>
+                            </div>
+
+                            <div className="space-y-3">
+                                {filteredServices.map((cat, idx) => (
+                                    <div key={idx} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+                                        <button onClick={() => setOpenCategory(openCategory === cat.category ? "" : cat.category)} className="w-full px-8 py-5 flex justify-between items-center hover:bg-slate-50 transition-colors uppercase font-black text-[10px] tracking-widest text-slate-400">
+                                            {cat.category}
+                                            <span>{openCategory === cat.category ? "▲" : "▼"}</span>
+                                        </button>
+                                        {openCategory === cat.category && (
+                                            <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-slate-100">
+                                                {cat.items.map((item, i) => (
+                                                    <div key={i} onClick={() => addToCart(item)} className="p-5 rounded-3xl hover:bg-green-50/50 cursor-pointer flex justify-between items-center group transition-all">
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 text-sm group-hover:text-green-700">{item.name}</h4>
+                                                            <p className="text-xs font-black text-green-600 mt-1">₹{item.price}</p>
+                                                        </div>
+                                                        <span className="text-slate-300 group-hover:text-green-600 font-bold">+</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-5">
+                            <div className="bg-slate-900 rounded-[3rem] p-10 text-white sticky top-28 shadow-2xl">
+                                <h3 className="text-2xl font-black mb-8 border-b border-white/10 pb-4 tracking-tighter">Summary</h3>
+                                <div className="space-y-6 max-h-[300px] overflow-y-auto pr-2 custom-scroll mb-8">
+                                    {cart.length === 0 ? <p className="opacity-20 text-center py-10">Add services to begin</p> : cart.map(item => (
+                                        <div key={item.id} className="flex justify-between items-start">
+                                            <div className="flex-1 pr-4">
+                                                <h4 className="text-sm font-bold">{item.name}</h4>
+                                                <div className="flex gap-4 mt-2">
+                                                    <button onClick={() => setCart(cart.map(c => c.id === item.id ? {...c, qty: Math.max(1, c.qty-1)} : c))} className="w-6 h-6 rounded bg-white/10">-</button>
+                                                    <span className="text-xs font-bold">{item.qty}</span>
+                                                    <button onClick={() => setCart(cart.map(c => c.id === item.id ? {...c, qty: c.qty+1} : c))} className="w-6 h-6 rounded bg-white/10">+</button>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-bold text-green-400">₹{item.price * item.qty}</p>
+                                                <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-[10px] text-red-400 font-bold uppercase mt-2">Remove</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="space-y-4 pt-6 border-t border-white/10">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs opacity-50 uppercase font-black">Conveyance</span>
+                                        <input type="number" className="w-20 bg-white/5 border-none rounded-xl px-3 py-2 text-right text-xs font-bold" value={visitCharge} onChange={e => setVisitCharge(Number(e.target.value))} />
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs opacity-50 uppercase font-black">Urgency Surge</span>
+                                        <div className="flex gap-2">
+                                            {[0, 10, 20].map(v => (
+                                                <button key={v} onClick={() => setSurchargePercent(v)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black ${surchargePercent === v ? 'bg-green-600' : 'bg-white/5'}`}>{v}%</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white/5 p-6 rounded-[2rem] mt-6 flex justify-between items-end">
+                                        <div>
+                                            <p className="text-[10px] font-black text-green-500 uppercase tracking-widest mb-1">Total</p>
+                                            <h2 className="text-4xl font-black">₹{finalTotal.toLocaleString()}</h2>
+                                        </div>
+                                        <input type="number" placeholder="Adjust" className="w-20 bg-white/10 rounded-xl px-2 py-1 text-xs text-right" value={manualTotal} onChange={e => setManualTotal(e.target.value)} />
+                                    </div>
+                                    <button onClick={sendWA} disabled={cart.length === 0} className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-[2rem] font-black text-lg mt-6 shadow-2xl shadow-green-900/40">
+                                        WhatsApp Link
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+
+                    {isGenerating && (
+                        <div className="fixed inset-0 bg-white/95 z-[1000] flex items-center justify-center">
+                            <div className="text-center">
+                                <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                <h3 className="text-xl font-black tracking-tighter">Preparing Receipt...</h3>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
