@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XzeCure | Professional Billing System</title>
+    <!-- Optimized CDNs -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        .cart-gradient { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
+        input:focus { outline: 2px solid #22c55e; outline-offset: 1px; }
+        .service-card:active { transform: scale(0.98); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const LOGO_URL = "https://raw.githubusercontent.com/XzeBitOP/SorenAssets/4045adfb36c572eba0c0dd418866d8ddb077a298/Website%20images/IMG_7123.png";
+        const REVIEW_LINK = "https://share.google/AwVHrXApkOqDDM7KT";
+
+        const SERVICES_DATA = [
+            {
+                category: "Doctor Services",
+                items: [
+                    { name: "Doctor Home Visit (Daytime)", price: 999 },
+                    { name: "Emergency / Night Visit (10pm-7am)", price: 1499 },
+                    { name: "Tele / Video Consultation", price: 499 },
+                ]
+            },
+            {
+                category: "Nursing Services",
+                items: [
+                    { name: "Nursing Visit (Inj/Dressing/IV)", price: 400 },
+                    { name: "12-hour Nursing Shift", price: 1200 },
+                    { name: "24-hour Nursing Care", price: 2200 },
+                    { name: "ICU-trained Nurse (Shift)", price: 1500 },
+                ]
+            },
+            {
+                category: "Attendant / Caregiver",
+                items: [
+                    { name: "Daytime Attendant (12 hrs)", price: 900 },
+                    { name: "24-hour Attendant", price: 1800 },
+                ]
+            },
+            {
+                category: "Physiotherapy",
+                items: [
+                    { name: "Physiotherapy Consultation", price: 400 },
+                    { name: "Follow-up Physio Session", price: 600 },
+                    { name: "Physio Package (10 sessions)", price: 3999 },
+                ]
+            },
+            {
+                category: "Procedures & Tests",
+                items: [
+                    { name: "Nebulisation at Home", price: 99 },
+                    { name: "ECG at Home", price: 199 },
+                    { name: "IV / Injection at Home", price: 99 },
+                    { name: "Wound Dressing", price: 199 },
+                    { name: "Blood Sample Collection", price: 149 },
+                ]
+            }
+        ];
+
+        function App() {
+            const [patient, setPatient] = useState({
+                name: '', phone: '', age: '', gender: 'Male', address: '', doctorName: '',
+                date: new Date().toISOString().split('T')[0]
+            });
+            const [cart, setCart] = useState([]);
+            const [visitCharge, setVisitCharge] = useState(0);
+            const [surchargePercent, setSurchargePercent] = useState(0);
+            const [manualTotal, setManualTotal] = useState('');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [openCategory, setOpenCategory] = useState("Doctor Services");
+            const [isGenerating, setIsGenerating] = useState(false);
+
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const totalWithVisit = subtotal + Number(visitCharge);
+            const surchargeAmount = (totalWithVisit * surchargePercent) / 100;
+            const finalTotal = manualTotal !== '' ? Number(manualTotal) : (totalWithVisit + surchargeAmount);
+
+            const filteredServices = useMemo(() => {
+                if (!searchTerm) return SERVICES_DATA;
+                return SERVICES_DATA.map(cat => ({
+                    ...cat,
+                    items: cat.items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                })).filter(cat => cat.items.length > 0);
+            }, [searchTerm]);
+
+            const addToCart = (item) => {
+                const existing = cart.find(c => c.name === item.name);
+                if (existing) {
+                    setCart(cart.map(c => c === existing ? { ...c, qty: c.qty + 1 } : c));
+                } else {
+                    setCart([...cart, { ...item, qty: 1, id: Date.now() }]);
+                }
+            };
+
+            const getBase64 = (url) => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = 'Anonymous';
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width; canvas.height = img.height;
+                        canvas.getContext('2d').drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = () => resolve(null);
+                    img.src = url;
+                });
+            };
+
+            const generatePDF = async () => {
+                setIsGenerating(true);
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF();
+                    const pageWidth = doc.internal.pageSize.width;
+                    
+                    const charcoal = [30, 41, 59];
+                    const green = [22, 163, 74];
+                    const lightBg = [248, 250, 252];
+
+                    // Header
+                    doc.setFillColor(...lightBg);
+                    doc.rect(0, 0, pageWidth, 55, 'F');
+                    
+                    const logo = await getBase64(LOGO_URL);
+                    if (logo) doc.addImage(logo, 'PNG', 15, 10, 35, 35);
+
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(26);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("XzeCure", pageWidth - 15, 25, { align: 'right' });
+                    
+                    doc.setFontSize(10);
+                    doc.setTextColor(...green);
+                    doc.text("QUALITY HOME HEALTHCARE", pageWidth - 15, 31, { align: 'right' });
+                    
+                    doc.setFontSize(9);
+                    doc.setTextColor(100);
+                    doc.setFont("helvetica", "normal");
+                    doc.text("www.xzecure.co.in | +91 93158 56041", pageWidth - 15, 37, { align: 'right' });
+
+                    // Invoice Info
+                    doc.setFillColor(...charcoal);
+                    doc.rect(15, 60, pageWidth - 30, 10, 'F');
+                    doc.setTextColor(255);
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(`RECEIPT: XZ-${Date.now().toString().slice(-6)}`, 22, 66.5);
+                    doc.text(`DATE: ${patient.date}`, pageWidth - 22, 66.5, { align: 'right' });
+
+                    // Patient Details
+                    doc.setTextColor(100);
+                    doc.setFontSize(8);
+                    doc.text("SERVICE PROVIDER:", 15, 80);
+                    doc.text("PATIENT INFORMATION:", 110, 80);
+
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(10);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("XzeCure Medical Response Unit", 15, 85);
+                    doc.text(patient.name || "Valued Customer", 110, 85);
+
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(9);
+                    doc.text(`Dr. ${patient.doctorName || "XzeCure Associate"}`, 15, 90);
+                    doc.text(`Ph: ${patient.phone || "N/A"}`, 110, 90);
+                    doc.text(`Details: ${patient.age || '-'}Y / ${patient.gender}`, 110, 95);
+                    const addr = doc.splitTextToSize(`Address: ${patient.address || "N/A"}`, 80);
+                    doc.text(addr, 110, 100);
+
+                    // Table
+                    const rows = cart.map((it, i) => [i + 1, it.name, `₹ ${it.price}`, it.qty, `₹ ${it.price * it.qty}`]);
+                    doc.autoTable({
+                        startY: 110,
+                        head: [['#', 'Description of Services', 'Price', 'Qty', 'Amount']],
+                        body: rows,
+                        theme: 'grid',
+                        headStyles: { fillColor: charcoal, fontSize: 9, halign: 'center' },
+                        columnStyles: { 0: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'center' }, 4: { halign: 'right' } }
+                    });
+
+                    // Summary
+                    let y = doc.lastAutoTable.finalY + 10;
+                    const addRow = (l, v, b = false) => {
+                        doc.setFont("helvetica", b ? "bold" : "normal");
+                        doc.setFontSize(b ? 12 : 9);
+                        doc.setTextColor(b ? 0 : 100);
+                        doc.text(l, pageWidth - 60, y, { align: 'right' });
+                        doc.text(`INR ${v}`, pageWidth - 15, y, { align: 'right' });
+                        y += 7;
+                    };
+                    addRow("Subtotal:", subtotal.toLocaleString());
+                    if (visitCharge > 0) addRow("Visit Charges:", visitCharge.toLocaleString());
+                    if (surchargePercent > 0) addRow(`Urgency Surge (${surchargePercent}%):`, surchargeAmount.toLocaleString());
+                    y += 2;
+                    addRow("GRAND TOTAL:", finalTotal.toLocaleString(), true);
+
+                    // Branding & Rating
+                    y += 15;
+                    doc.setFillColor(248, 250, 252);
+                    doc.rect(15, y, pageWidth - 30, 50, 'F');
+                    
+                    doc.setTextColor(...charcoal);
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("Thank you for choosing XzeCure", 22, y + 10);
+                    
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(100);
+                    doc.text("We truly appreciate your trust in us.", 22, y + 16);
+                    doc.text("If you were satisfied with our service, kindly rate us on Google:", 22, y + 25);
+                    
+                    // Button
+                    doc.setFillColor(...green);
+                    doc.roundedRect(22, y + 29, 45, 10, 1, 1, 'F');
+                    doc.setTextColor(255);
+                    doc.setFontSize(8);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("RATE US ON GOOGLE", 44.5, y + 35.5, { align: 'center' });
+                    doc.link(22, y + 29, 45, 10, { url: REVIEW_LINK });
+
+                    doc.setTextColor(150);
+                    doc.setFontSize(8);
+                    doc.text("YouTube / Instagram: @XzeCure", 22, y + 46);
+
+                    doc.save(`XzeCure_Receipt_${patient.name || 'Patient'}.pdf`);
+                } catch (err) {
+                    alert("Error exporting PDF. Please check your browser permissions.");
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            const openWA = () => {
+                if (!patient.phone) return alert("Please enter a phone number.");
+                const phone = patient.phone.replace(/\D/g, '');
+                const waNum = phone.length === 10 ? `91${phone}` : phone;
+                const msg = `*XZECURE HEALTHCARE*%0A%0AHi *${patient.name}*,%0AYour receipt for *INR ${finalTotal.toLocaleString()}* is ready.%0A%0AThank you for choosing XzeCure.%0A*Rate us on Google:* ${REVIEW_LINK}%0A%0A_Follow us: @XzeCure_`;
+                window.open(`https://wa.me/${waNum}?text=${msg}`, '_blank');
+            };
+
+            return (
+                <div className="min-h-screen">
+                    {/* Header */}
+                    <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b px-6 py-4 flex justify-between items-center shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-slate-900 p-2 rounded-2xl shadow-lg"><img src={LOGO_URL} className="w-8 h-8" alt="X" /></div>
+                            <div>
+                                <h1 className="text-xl font-black tracking-tight text-slate-900">XzeCure</h1>
+                                <span className="text-[10px] font-bold text-green-600 uppercase tracking-widest block leading-none">Bill Master Pro</span>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={generatePDF} 
+                            disabled={cart.length === 0 || isGenerating}
+                            className="bg-slate-900 hover:bg-black text-white px-6 py-2.5 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-20 flex items-center gap-2 shadow-xl shadow-slate-200"
+                        >
+                            <span className="hidden sm:inline">Export Receipt</span>
+                            <span className="sm:hidden text-sm">PDF</span>
+                        </button>
+                    </nav>
+
+                    <main className="max-w-6xl mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        {/* Forms Column */}
+                        <div className="lg:col-span-7 space-y-6">
+                            <section className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">Patient Records & Medical Team</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Full Name</label>
+                                        <input type="text" placeholder="Patient Name" className="w-full p-4 bg-slate-50 border-none rounded-2xl outline-none" value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">WhatsApp Number</label>
+                                        <input type="tel" placeholder="10 Digit Mobile" className="w-full p-4 bg-slate-50 border-none rounded-2xl outline-none" value={patient.phone} onChange={e => setPatient({...patient, phone: e.target.value})} />
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <div className="w-1/3 space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Age</label>
+                                            <input type="number" className="w-full p-4 bg-slate-50 border-none rounded-2xl outline-none" value={patient.age} onChange={e => setPatient({...patient, age: e.target.value})} />
+                                        </div>
+                                        <div className="flex-1 space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Gender</label>
+                                            <select className="w-full p-4 bg-slate-50 border-none rounded-2xl outline-none appearance-none" value={patient.gender} onChange={e => setPatient({...patient, gender: e.target.value})}>
+                                                <option>Male</option><option>Female</option><option>Other</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Attending Doctor</label>
+                                        <input type="text" placeholder="Dr. Name" className="w-full p-4 bg-green-50 border border-green-100 rounded-2xl outline-none font-medium" value={patient.doctorName} onChange={e => setPatient({...patient, doctorName: e.target.value})} />
+                                    </div>
+                                    <div className="md:col-span-2 space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Home Address / Location</label>
+                                        <input type="text" placeholder="Street, Area, Landmark" className="w-full p-4 bg-slate-50 border-none rounded-2xl outline-none" value={patient.address} onChange={e => setPatient({...patient, address: e.target.value})} />
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Catalog */}
+                            <div className="space-y-4">
+                                <div className="relative group">
+                                    <input 
+                                        type="text" placeholder="Search treatments, tests, services..." 
+                                        className="w-full p-6 pl-14 rounded-[2.5rem] bg-white shadow-xl shadow-slate-200/50 border-none outline-none text-lg placeholder:text-slate-300"
+                                        value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
+                                    />
+                                    <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 text-xl">🔍</span>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {filteredServices.map((cat, idx) => (
+                                        <div key={idx} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+                                            <button onClick={() => setOpenCategory(openCategory === cat.category ? "" : cat.category)} className="w-full px-8 py-5 flex justify-between items-center hover:bg-slate-50 transition-colors uppercase font-black text-[10px] tracking-widest text-slate-400">
+                                                {cat.category}
+                                                <span className="text-lg transition-transform" style={{transform: openCategory === cat.category ? 'rotate(180deg)' : 'none'}}>▼</span>
+                                            </button>
+                                            {openCategory === cat.category && (
+                                                <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-slate-100">
+                                                    {cat.items.map((item, i) => (
+                                                        <div key={i} onClick={() => addToCart(item)} className="p-5 rounded-3xl hover:bg-green-50 cursor-pointer flex justify-between items-center group transition-all service-card">
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 text-sm group-hover:text-green-700 transition-colors">{item.name}</h4>
+                                                                <p className="text-xs font-black text-green-600 mt-1">₹{item.price}</p>
+                                                            </div>
+                                                            <span className="text-slate-200 group-hover:text-green-600 text-2xl font-bold">+</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Cart Sidebar */}
+                        <div className="lg:col-span-5">
+                            <div className="cart-gradient rounded-[3rem] p-10 text-white sticky top-28 shadow-2xl">
+                                <h3 className="text-2xl font-black mb-8 border-b border-white/10 pb-4 tracking-tighter flex justify-between">Summary <span className="text-green-500">{cart.length}</span></h3>
+                                <div className="space-y-6 max-h-[300px] overflow-y-auto pr-3 custom-scroll mb-10">
+                                    {cart.length === 0 ? (
+                                        <div className="py-20 text-center opacity-20">
+                                            <p className="text-sm font-black uppercase tracking-widest">Awaiting Selections</p>
+                                        </div>
+                                    ) : (
+                                        cart.map(item => (
+                                            <div key={item.id} className="flex justify-between items-start group">
+                                                <div className="flex-1 pr-6">
+                                                    <h4 className="text-sm font-black leading-tight tracking-tight">{item.name}</h4>
+                                                    <div className="flex items-center gap-4 mt-3">
+                                                        <div className="flex items-center bg-white/5 rounded-xl p-0.5">
+                                                            <button onClick={() => setCart(cart.map(c => c.id === item.id ? {...c, qty: Math.max(1, c.qty-1)} : c))} className="w-8 h-8 flex items-center justify-center hover:bg-green-600 transition-colors">-</button>
+                                                            <span className="text-xs font-black w-8 text-center">{item.qty}</span>
+                                                            <button onClick={() => setCart(cart.map(c => c.id === item.id ? {...c, qty: c.qty+1} : c))} className="w-8 h-8 flex items-center justify-center hover:bg-green-600 transition-colors">+</button>
+                                                        </div>
+                                                        <span className="text-[10px] font-bold opacity-30">₹{item.price} ea</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black text-green-400">₹{item.price * item.qty}</p>
+                                                    <button onClick={() => setCart(cart.filter(c => c.id !== item.id))} className="text-[10px] text-red-500 font-bold uppercase mt-3 tracking-tighter opacity-40 hover:opacity-100 transition-opacity">Remove</button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                <div className="space-y-4 pt-6 border-t border-white/10">
+                                    <div className="flex justify-between items-center text-[10px] opacity-40 font-black tracking-widest uppercase">
+                                        <span>Subtotal Charges</span>
+                                        <span>₹{subtotal.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs font-bold uppercase tracking-widest opacity-60">Visit Charges</span>
+                                        <input type="number" className="w-24 bg-white/5 border-none rounded-xl px-4 py-2 text-right text-xs font-black outline-none focus:ring-2 focus:ring-green-600" value={visitCharge} onChange={e => setVisitCharge(Number(e.target.value))} />
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs font-bold uppercase tracking-widest opacity-60">Urgency Surge</span>
+                                        <div className="flex bg-white/5 rounded-xl p-1 gap-1">
+                                            {[0, 10, 20].map(v => (
+                                                <button key={v} onClick={() => setSurchargePercent(v)} className={`px-4 py-2 rounded-lg text-[10px] font-black transition-all ${surchargePercent === v ? 'bg-green-600' : 'opacity-40'}`}>{v}%</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white/5 p-8 rounded-[2.5rem] flex justify-between items-end mt-6">
+                                        <div>
+                                            <p className="text-[10px] font-black text-green-500 uppercase tracking-widest mb-1">Final Total</p>
+                                            <h2 className="text-5xl font-black text-white tracking-tighter">₹{finalTotal.toLocaleString()}</h2>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="text-[10px] opacity-20 font-black block mb-2 uppercase">Custom?</span>
+                                            <input type="number" placeholder="Override" className="w-24 bg-white/10 border-none rounded-xl px-4 py-2 text-xs font-black outline-none" value={manualTotal} onChange={e => setManualTotal(e.target.value)} />
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={openWA} 
+                                        disabled={cart.length === 0}
+                                        className="w-full bg-green-600 hover:bg-green-700 text-white py-6 rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-3 shadow-2xl transition-all active:scale-95 disabled:opacity-30 mt-6"
+                                    >
+                                        WhatsApp Link
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+
+                    {isGenerating && (
+                        <div className="fixed inset-0 bg-white/95 z-[1000] flex items-center justify-center">
+                            <div className="text-center animate-pulse">
+                                <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+                                <h3 className="text-2xl font-black tracking-tighter uppercase">Compiling Receipt</h3>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
